@@ -1,14 +1,48 @@
-
 #!/usr/bin/env bash
 
 ALIASES_FILE="$HOME/.config/go-links/aliases"
+ALIASES_DIR="$(dirname "$ALIASES_FILE")"
+
+# Ensure directory and file exist
+mkdir -p "$ALIASES_DIR"
+[ ! -f "$ALIASES_FILE" ] && touch "$ALIASES_FILE"
 
 show_usage() {
   echo "Usage:"
-  echo "  go <alias>           Open an alias"
-  echo "  go add <alias> <url> Add new alias"
-  echo "  go list              List all aliases"
-  echo "  go remove <alias>    Remove an alias"
+  echo "  go <alias> [path...]     Open an alias, optionally with path segments"
+  echo "  go add <alias> <url>     Add new alias"
+  echo "  go update <alias> <url>  Update existing alias"
+  echo "  go list                  List all aliases"
+  echo "  go search <term>         Search aliases by name or URL"
+  echo "  go remove <alias>        Remove an alias"
+  echo ""
+  echo "Examples:"
+  echo "  go gh                    Opens github.com (if aliased)"
+  echo "  go gh user repo          Opens github.com/user/repo"
+  echo "  go docs api auth         Opens docs-url/api/auth"
+}
+
+open_url() {
+  local url="$1"
+  
+  if command -v xdg-open &> /dev/null; then
+    (nohup xdg-open "$url" </dev/null >/dev/null 2>&1 &)
+  else
+    echo "Error: xdg-open not found"
+    echo "Please open manually: $url"
+    exit 1
+  fi
+}
+
+validate_url() {
+  local url="$1"
+  if [[ ! "$url" =~ ^https?:// ]]; then
+    echo "Warning: URL should start with http:// or https://"
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    [[ ! $REPLY =~ ^[Yy]$ ]] && return 1
+  fi
+  return 0
 }
 
 case "$1" in
@@ -17,16 +51,100 @@ case "$1" in
       echo "Usage: go add <alias> <url>"
       exit 1
     fi
+    
+    # Validate alias name (alphanumeric, dash, underscore only)
+    if [[ ! "$2" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+      echo "Error: Alias must contain only letters, numbers, dashes, and underscores"
+      exit 1
+    fi
+    
+    # Check if alias already exists
+    if grep -q "^$2=" "$ALIASES_FILE" 2>/dev/null; then
+      echo "Error: Alias '$2' already exists"
+      existing_url=$(grep "^$2=" "$ALIASES_FILE" | cut -d'=' -f2-)
+      echo "Current mapping: $2 -> $existing_url"
+      echo "Use 'go update $2 <new_url>' to update it"
+      exit 1
+    fi
+    
+    validate_url "$3" || exit 1
+    
     echo "$2=$3" >> "$ALIASES_FILE"
-    echo "Added: $2 -> $3"
+    echo "✓ Added: $2 -> $3"
+    ;;
+    
+  update)
+    if [ $# -ne 3 ]; then
+      echo "Usage: go update <alias> <url>"
+      exit 1
+    fi
+    
+    if ! grep -q "^$2=" "$ALIASES_FILE" 2>/dev/null; then
+      echo "Error: Alias '$2' not found"
+      echo "Use 'go add $2 $3' to create it"
+      exit 1
+    fi
+    
+    validate_url "$3" || exit 1
+    
+    # Use sed differently for macOS vs Linux
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s|^$2=.*|$2=$3|" "$ALIASES_FILE"
+    else
+      sed -i "s|^$2=.*|$2=$3|" "$ALIASES_FILE"
+    fi
+    
+    echo "✓ Updated: $2 -> $3"
     ;;
     
   list)
-    if [ ! -f "$ALIASES_FILE" ]; then
-      echo "No aliases found"
+    if [ ! -s "$ALIASES_FILE" ]; then
+      echo "No aliases configured yet"
+      echo "Add one with: go add <alias> <url>"
+      exit 0
+    fi
+    
+    echo "Available aliases:"
+    echo ""
+    
+    # Calculate max alias length for formatting
+    max_len=0
+    while IFS='=' read -r alias _; do
+      [ ${#alias} -gt $max_len ] && max_len=${#alias}
+    done < "$ALIASES_FILE"
+    
+    # Display sorted aliases
+    while IFS='=' read -r alias url; do
+      printf "  %-${max_len}s  →  %s\n" "$alias" "$url"
+    done < <(sort "$ALIASES_FILE")
+    
+    echo ""
+    echo "Total: $(wc -l < "$ALIASES_FILE" | tr -d ' ') aliases"
+    ;;
+    
+  search)
+    if [ -z "$2" ]; then
+      echo "Usage: go search <term>"
       exit 1
     fi
-    cat "$ALIASES_FILE"
+    
+    if [ ! -s "$ALIASES_FILE" ]; then
+      echo "No aliases configured yet"
+      exit 0
+    fi
+    
+    results=$(grep -i "$2" "$ALIASES_FILE")
+    
+    if [ -z "$results" ]; then
+      echo "No aliases found matching '$2'"
+      exit 1
+    fi
+    
+    echo "Aliases matching '$2':"
+    echo ""
+    while IFS='=' read -r alias url; do
+      printf "  %-20s  →  %s\n" "$alias" "$url"
+    done <<< "$results"
     ;;
     
   remove)
@@ -34,13 +152,23 @@ case "$1" in
       echo "Usage: go remove <alias>"
       exit 1
     fi
-    sed -i.bak "/^$2=/d" "$ALIASES_FILE"
-    echo "Removed: $2"
+    
+    if ! grep -q "^$2=" "$ALIASES_FILE" 2>/dev/null; then
+      echo "Error: Alias '$2' not found"
+      exit 1
+    fi
+    
+    # Get URL before removing for confirmation
+    removed_url=$(grep "^$2=" "$ALIASES_FILE" | cut -d'=' -f2-)
+    
+    sed -i "/^$2=/d" "$ALIASES_FILE"
+    
+    echo "✓ Removed: $2 -> $removed_url"
     ;;
     
-  "")
+  ""|"-h"|"--help"|"help")
     show_usage
-    exit 1
+    exit 0
     ;;
     
   *)
@@ -49,13 +177,44 @@ case "$1" in
       exit 1
     fi
     
-    url=$(grep "^$1=" "$ALIASES_FILE" | cut -d'=' -f2)
+    alias_name="$1"
+    shift  # Remove alias name, leaving path segments
     
-    if [ -z "$url" ]; then
-      echo "Alias '$1' not found. Use 'go list' to see available aliases."
+    # Get base URL
+    base_url=$(grep "^$alias_name=" "$ALIASES_FILE" | cut -d'=' -f2-)
+    
+    if [ -z "$base_url" ]; then
+      echo "Alias '$alias_name' not found."
+      echo ""
+      
+      # Suggest similar aliases (case-insensitive prefix match)
+      similar=$(grep -i "^$alias_name" "$ALIASES_FILE" | cut -d'=' -f1)
+      if [ -n "$similar" ]; then
+        echo "Did you mean one of these?"
+        echo "$similar" | sed 's/^/  /'
+        echo ""
+      fi
+      
+      echo "Use 'go list' to see all available aliases."
       exit 1
     fi
     
-    (nohup xdg-open "$url" </dev/null >/dev/null 2>&1 &)
+    # Build final URL with path segments
+    final_url="$base_url"
     
+    # Remove trailing slash from base URL if present
+    final_url="${final_url%/}"
+    
+    # Append path segments
+    for segment in "$@"; do
+      final_url="$final_url/$segment"
+    done
+    
+    # Show what we're opening if path segments were provided
+    if [ $# -gt 0 ]; then
+      echo "Opening: $final_url"
+    fi
+    
+    open_url "$final_url"
+    ;;
 esac

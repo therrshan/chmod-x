@@ -1,32 +1,47 @@
-# go - Quick Link Manager
+# go
 
-Personal bookmark system that opens links from your terminal.
+Fast URL bookmarking with path routing.
+
+## Install
+
+```bash
+chmod +x go
+sudo mv go /usr/local/bin/go
+```
 
 ## Usage
 
-Open a link:
 ```bash
-go yt
-```
-
-Add new link:
-```bash
-go add reddit https://reddit.com
-```
-
-List all links:
-```bash
+go <alias> [path...]
+go add <alias> <url>
 go list
 ```
 
-Remove link:
+### Commands
+- `go <alias>` - Open URL
+- `go <alias> path segments` - Open URL with appended path
+- `go add <alias> <url>` - Add new alias
+- `go update <alias> <url>` - Update existing alias
+- `go list` - List all aliases
+- `go search <term>` - Search aliases
+- `go remove <alias>` - Remove alias
+
+## Examples
+
 ```bash
-go remove reddit
-```
+# Add aliases (multiple aliases for same URL supported)
+go add gh https://github.com
+go add git https://github.com
 
-## Configuration
+# Open base URL
+go gh
 
-Links are stored in `~/.config/go-links/aliases` as simple key-value pairs:
-```
-alias=url
+# Open with path routing
+go gh torvalds linux          # Opens github.com/torvalds/linux
+go docs api auth              # Opens docs-url/api/auth
+
+# Manage aliases
+go list                       # Show all
+go search github              # Find matching
+go remove old-alias           # Delete
 ```
