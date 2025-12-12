@@ -1,0 +1,250 @@
+#!/bin/bash
+
+# --- Configuration ---
+PROJECT_TYPE_ML="python-ml"
+PROJECT_TYPE_FASTAPI="python-fastapi"
+PROJECT_TYPE_SCIENCE="python-science"
+
+# --- Utility Functions ---
+
+usage() {
+    echo "Usage: dev <project-type> <directory> [flags]"
+    echo ""
+    echo "  <project-type>: ${PROJECT_TYPE_ML}, ${PROJECT_TYPE_FASTAPI}, or ${PROJECT_TYPE_SCIENCE}"
+    echo ""
+    echo "  [flags]:"
+    echo "      -g, --git: Initialize a Git repository."
+    echo "      -v, --venv: Create Python virtual environment using uv or venv."
+    echo "      -c, --conda: Placeholder for conda env creation."
+    echo "      -h, --help: Show this help."
+    echo ""
+}
+
+create_file() {
+    local file_path=$1
+    local content=$2
+    echo -e "$content" > "$file_path"
+}
+
+# --- Project Creation Functions ---
+
+create_ml_project() {
+    local target_dir=$1
+    local project_name=$2
+    echo "Creating $PROJECT_TYPE_ML project structure..."
+
+    mkdir -p "$target_dir"/{conf,data/raw,data/processed,src/"$project_name",models,notebooks,tests}
+
+    create_file "$target_dir/setup.cfg" "[metadata]
+name = $project_name
+version = 0.1.0
+description = A machine learning project.
+
+[options]
+packages = find:
+install_requires = file:requirements.txt
+python_requires = >=3.9"
+
+    create_file "$target_dir/requirements.txt" "numpy
+pandas
+scikit-learn
+matplotlib
+jupyter
+PyYAML
+loguru"
+
+    create_file "$target_dir/conf/config.yaml" "data:
+  raw_path: data/raw/input.csv
+model:
+  n_estimators: 100
+  random_state: 42"
+
+    create_file "$target_dir/src/$project_name/__init__.py" ""
+    create_file "$target_dir/src/$project_name/data.py" "import pandas as pd
+
+def load_data(path):
+    return pd.read_csv(path)
+
+def preprocess(df):
+    return df.dropna()"
+
+    create_file "$target_dir/Makefile" "train:
+\tpython3 -m $project_name.main
+
+clean:
+\trm -rf models/* data/processed/*
+
+.PHONY: train clean"
+
+    create_file "$target_dir/README.md" "# ML Project: $project_name"
+}
+
+create_fastapi_project() {
+    local target_dir=$1
+    local project_name=$2
+    echo "Creating $PROJECT_TYPE_FASTAPI project structure..."
+
+    mkdir -p "$target_dir"/app/{api/v1,core/config,db,models,schemas,tests}
+
+    create_file "$target_dir/requirements.txt" "fastapi
+uvicorn[standard]
+pydantic
+SQLAlchemy
+python-multipart
+httpx"
+
+    create_file "$target_dir/app/main.py" "from fastapi import FastAPI
+from app.api.v1.endpoints import router as v1_router
+
+app = FastAPI(title='FastAPI Project')
+app.include_router(v1_router, prefix='/api/v1')"
+
+    create_file "$target_dir/app/api/v1/endpoints.py" "from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get('/')
+async def root():
+    return {'message': 'Welcome to API v1'}"
+
+    create_file "$target_dir/Dockerfile" "FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]"
+
+    create_file "$target_dir/pyproject.toml" "[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = \"black\""
+
+    create_file "$target_dir/README.md" "# FastAPI Project: $project_name"
+}
+
+create_science_project() {
+    local target_dir=$1
+    local project_name=$2
+    echo "Creating $PROJECT_TYPE_SCIENCE project structure..."
+
+    mkdir -p "$target_dir"/{data/raw,data/processed,notebooks,src/"$project_name",reports/figures,environments}
+
+    create_file "$target_dir/environments/analysis.yml" "name: $project_name-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - seaborn
+  - jupyterlab"
+
+    create_file "$target_dir/requirements.txt" "numpy
+pandas
+scipy
+matplotlib
+scikit-learn
+statsmodels"
+
+    create_file "$target_dir/src/$project_name/data_ingestion.py" "import pandas as pd
+
+def fetch_data():
+    print(\"Fetching data...\")
+    df = pd.DataFrame({'A': [1,2,3]})
+    df.to_csv('../data/raw/data.csv', index=False)
+    print(\"Saved: data/raw/data.csv\")"
+
+    create_file "$target_dir/README.md" "# Science Project: $project_name"
+}
+
+# --- Main ---
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    usage
+    exit 0
+fi
+
+if [ "$#" -lt 2 ]; then
+    usage
+    exit 1
+fi
+
+PROJECT_TYPE=$1
+TARGET_DIR=$2
+
+if [ "$TARGET_DIR" == "." ]; then
+    PROJECT_NAME=$(basename "$PWD")
+else
+    PROJECT_NAME=$(basename "$TARGET_DIR")
+fi
+
+FLAG_GIT=false
+FLAG_VENV=false
+FLAG_CONDA=false
+
+for arg in "${@:3}"; do
+    case "$arg" in
+        -g|--git) FLAG_GIT=true ;;
+        -v|--venv) FLAG_VENV=true ;;
+        -c|--conda) FLAG_CONDA=true ;;
+        *)
+            echo "Unknown flag: $arg"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$TARGET_DIR" != "." ]; then
+    if [ -d "$TARGET_DIR" ]; then
+        echo "Error: Directory '$TARGET_DIR' already exists."
+        exit 1
+    fi
+    mkdir -p "$TARGET_DIR"
+    echo "Created: $TARGET_DIR"
+fi
+
+cd "$TARGET_DIR" || exit 1
+
+case "$PROJECT_TYPE" in
+    $PROJECT_TYPE_ML) create_ml_project "." "$PROJECT_NAME" ;;
+    $PROJECT_TYPE_FASTAPI) create_fastapi_project "." "$PROJECT_NAME" ;;
+    $PROJECT_TYPE_SCIENCE) create_science_project "." "$PROJECT_NAME" ;;
+    *) echo "Unknown project type: $PROJECT_TYPE"; exit 1 ;;
+esac
+
+# --- Flags ---
+
+if $FLAG_GIT; then
+    if command -v git >/dev/null; then
+        git init >/dev/null
+        create_file ".gitignore" "__pycache__
+.venv
+*.pyc
+*.log
+data/raw
+models
+reports/figures"
+        echo "Initialized git repo."
+    fi
+fi
+
+if $FLAG_VENV; then
+    if command -v uv >/dev/null; then
+        echo "Using uv to create venv..."
+        uv venv .venv >/dev/null
+        source .venv/bin/activate
+        uv pip install -r requirements.txt >/dev/null
+    else
+        echo "Using python3 -m venv..."
+        python3 -m venv .venv >/dev/null
+        source .venv/bin/activate
+        pip install -r requirements.txt >/dev/null
+    fi
+    echo "Virtual environment ready."
+fi
+
+echo "Done! Project created: $PROJECT_NAME"
