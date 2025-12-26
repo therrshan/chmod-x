@@ -15,11 +15,13 @@ show_usage() {
   echo "  go list                  List all aliases"
   echo "  go search <term>         Search aliases by name or URL"
   echo "  go remove <alias>        Remove an alias"
+  echo "  go temp <url>            Open a url temporarily without adding in alias."
   echo ""
   echo "Examples:"
   echo "  go gh                    Opens github.com (if aliased)"
   echo "  go gh user repo          Opens github.com/user/repo"
   echo "  go docs api auth         Opens docs-url/api/auth"
+  echo "  go temp https://a.com    Opens a.com"
 }
 
 open_url() {
@@ -52,13 +54,11 @@ case "$1" in
       exit 1
     fi
     
-    # Validate alias name (alphanumeric, dash, underscore only)
     if [[ ! "$2" =~ ^[a-zA-Z0-9_-]+$ ]]; then
       echo "Error: Alias must contain only letters, numbers, dashes, and underscores"
       exit 1
     fi
-    
-    # Check if alias already exists
+
     if grep -q "^$2=" "$ALIASES_FILE" 2>/dev/null; then
       echo "Error: Alias '$2' already exists"
       existing_url=$(grep "^$2=" "$ALIASES_FILE" | cut -d'=' -f2-)
@@ -72,6 +72,21 @@ case "$1" in
     echo "$2=$3" >> "$ALIASES_FILE"
     echo "✓ Added: $2 -> $3"
     ;;
+  
+  temp)
+    if [ $# -ne 2 ]; then
+      echo "Usage: go temp <url>"
+      exit 1
+    fi
+
+    base_url="$2"
+
+    validate_url "$base_url" || exit 1
+
+    open_url "$base_url"
+    ;;
+
+
     
   update)
     if [ $# -ne 3 ]; then
@@ -178,16 +193,14 @@ case "$1" in
     fi
     
     alias_name="$1"
-    shift  # Remove alias name, leaving path segments
+    shift
     
-    # Get base URL
     base_url=$(grep "^$alias_name=" "$ALIASES_FILE" | cut -d'=' -f2-)
     
     if [ -z "$base_url" ]; then
       echo "Alias '$alias_name' not found."
       echo ""
       
-      # Suggest similar aliases (case-insensitive prefix match)
       similar=$(grep -i "^$alias_name" "$ALIASES_FILE" | cut -d'=' -f1)
       if [ -n "$similar" ]; then
         echo "Did you mean one of these?"
@@ -199,18 +212,13 @@ case "$1" in
       exit 1
     fi
     
-    # Build final URL with path segments
     final_url="$base_url"
-    
-    # Remove trailing slash from base URL if present
     final_url="${final_url%/}"
     
-    # Append path segments
     for segment in "$@"; do
       final_url="$final_url/$segment"
     done
     
-    # Show what we're opening if path segments were provided
     if [ $# -gt 0 ]; then
       echo "Opening: $final_url"
     fi
