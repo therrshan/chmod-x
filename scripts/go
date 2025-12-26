@@ -15,7 +15,7 @@ show_usage() {
   echo "  go list                  List all aliases"
   echo "  go search <term>         Search aliases by name or URL"
   echo "  go remove <alias>        Remove an alias"
-  echo "  go temp <url>            Open a url temporarily without adding in alias."
+  echo "  go temp <url>            Open a url temporarily without adding alias."
   echo ""
   echo "Examples:"
   echo "  go gh                    Opens github.com (if aliased)"
@@ -54,11 +54,13 @@ case "$1" in
       exit 1
     fi
     
+    # Validate alias name (alphanumeric, dash, underscore only)
     if [[ ! "$2" =~ ^[a-zA-Z0-9_-]+$ ]]; then
       echo "Error: Alias must contain only letters, numbers, dashes, and underscores"
       exit 1
     fi
-
+    
+    # Check if alias already exists
     if grep -q "^$2=" "$ALIASES_FILE" 2>/dev/null; then
       echo "Error: Alias '$2' already exists"
       existing_url=$(grep "^$2=" "$ALIASES_FILE" | cut -d'=' -f2-)
@@ -66,13 +68,13 @@ case "$1" in
       echo "Use 'go update $2 <new_url>' to update it"
       exit 1
     fi
-    
+
     validate_url "$3" || exit 1
-    
+
     echo "$2=$3" >> "$ALIASES_FILE"
     echo "✓ Added: $2 -> $3"
     ;;
-  
+
   temp)
     if [ $# -ne 2 ]; then
       echo "Usage: go temp <url>"
@@ -80,14 +82,15 @@ case "$1" in
     fi
 
     base_url="$2"
-
+    if [[ ! "$base_url" =~ ^https?:// ]]; then
+	    echo "Adding https:// prefix."
+	    base_url="https://${base_url}"
+    fi
+    
     validate_url "$base_url" || exit 1
-
     open_url "$base_url"
     ;;
 
-
-    
   update)
     if [ $# -ne 3 ]; then
       echo "Usage: go update <alias> <url>"
